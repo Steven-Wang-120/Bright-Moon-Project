@@ -1,0 +1,18 @@
+# Build outputs
+build/
+*.elf
+*.bin
+*.map
+*.hex
+*.list
+
+# Local tool files
+openocd.log
+
+# Editor files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

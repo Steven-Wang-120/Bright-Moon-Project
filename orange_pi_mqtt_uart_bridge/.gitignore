@@ -1,0 +1,21 @@
+# Virtualenv
+.venv/
+venv/
+
+# Python cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Local runtime files
+config.json
+*.log
+
+# Editor files
+.idea/
+.vscode/
+
+# OS files
+.DS_Store
+Thumbs.db

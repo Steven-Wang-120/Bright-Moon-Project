@@ -1,0 +1,248 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Orange Pi MQTT-UART Bridge v{{ app_version }}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+  </head>
+  <body>
+    <main class="layout">
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Orange Pi / v{{ app_version }}</p>
+          <h1>MQTT -> UART Bridge</h1>
+          <p class="subtle">保留 MQTT JSON 原消息，只在串口侧补一行结束符并转发给 STM32。</p>
+        </div>
+        <div class="status-card">
+          <div class="status-row">
+            <span>服务状态</span>
+            <strong id="runningState">{{ "运行中" if status.running else "已停止" }}</strong>
+          </div>
+          <div class="status-row">
+            <span>MQTT 状态</span>
+            <strong id="mqttState">{{ "已连接" if status.mqtt_connected else "未连接" }}</strong>
+          </div>
+          <div class="status-row">
+            <span>串口</span>
+            <strong id="serialPort">{{ config.serial_port }}</strong>
+          </div>
+          <div class="status-row">
+            <span>版本</span>
+            <strong>{{ app_version }}</strong>
+          </div>
+          <div class="action-row">
+            <button type="button" onclick="callApi('/api/start')">启动</button>
+            <button type="button" class="ghost" onclick="callApi('/api/restart')">重启</button>
+            <button type="button" class="danger" onclick="callApi('/api/stop')">停止</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel-grid">
+        <form class="panel" id="configForm">
+          <div class="panel-head">
+            <h2>运行配置</h2>
+            <button type="submit">保存配置</button>
+          </div>
+
+          <div class="grid">
+            <label>
+              <span>MQTT Host</span>
+              <input name="mqtt_host" value="{{ config.mqtt_host }}">
+            </label>
+            <label>
+              <span>MQTT Port</span>
+              <input name="mqtt_port" type="number" value="{{ config.mqtt_port }}">
+            </label>
+            <label>
+              <span>用户名</span>
+              <input name="mqtt_username" value="{{ config.mqtt_username }}">
+            </label>
+            <label>
+              <span>密码</span>
+              <input name="mqtt_password" type="password" value="{{ config.mqtt_password }}">
+            </label>
+            <label>
+              <span>Client ID</span>
+              <input name="mqtt_client_id" value="{{ config.mqtt_client_id }}">
+            </label>
+            <label>
+              <span>QoS</span>
+              <select name="mqtt_qos">
+                <option value="0" {% if config.mqtt_qos == 0 %}selected{% endif %}>0</option>
+                <option value="1" {% if config.mqtt_qos == 1 %}selected{% endif %}>1</option>
+                <option value="2" {% if config.mqtt_qos == 2 %}selected{% endif %}>2</option>
+              </select>
+            </label>
+            <label class="wide">
+              <span>订阅 Topic</span>
+              <textarea name="mqtt_topics" rows="4">{{ "\n".join(config.mqtt_topics) }}</textarea>
+            </label>
+            <label>
+              <span>串口设备</span>
+              <div class="inline-row">
+                <input name="serial_port" value="{{ config.serial_port }}">
+                <button type="button" class="ghost" onclick="loadPorts()">扫描</button>
+              </div>
+              <small id="portsHint"></small>
+            </label>
+            <label>
+              <span>波特率</span>
+              <input name="baudrate" type="number" value="{{ config.baudrate }}">
+            </label>
+            <label class="check">
+              <input name="write_newline" type="checkbox" {% if config.write_newline %}checked{% endif %}>
+              <span>发送到串口时自动补 `\n`</span>
+            </label>
+            <label class="check">
+              <input name="auto_start" type="checkbox" {% if config.auto_start %}checked{% endif %}>
+              <span>程序启动时自动连 MQTT 和串口</span>
+            </label>
+          </div>
+
+          <label class="check restart">
+            <input id="restartAfterSave" type="checkbox" checked>
+            <span>保存后立即重启桥服务</span>
+          </label>
+        </form>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>实时状态</h2>
+          </div>
+          <dl class="stats" id="stats"></dl>
+        </section>
+      </section>
+
+      <section class="panel-grid bottom">
+        <form class="panel" id="testForm">
+          <div class="panel-head">
+            <h2>测试 MQTT Payload</h2>
+            <button type="submit">注入并转发</button>
+          </div>
+          <label>
+            <span>模拟 Topic</span>
+            <input name="topic" value="manual/test">
+          </label>
+          <label>
+            <span>Payload</span>
+            <textarea name="payload" rows="6">{"face":"happy","intensity":65}</textarea>
+          </label>
+        </form>
+
+        <form class="panel" id="uartForm">
+          <div class="panel-head">
+            <h2>直接发串口</h2>
+            <button type="submit">写入 UART</button>
+          </div>
+          <label>
+            <span>标记 Topic</span>
+            <input name="topic" value="manual/uplink">
+          </label>
+          <label>
+            <span>Payload</span>
+            <textarea name="payload" rows="6">{"face":"thinking","intensity":70}</textarea>
+          </label>
+        </form>
+      </section>
+
+      <section class="panel logs">
+        <div class="panel-head">
+          <h2>运行日志</h2>
+          <button type="button" class="ghost" onclick="refreshLogs()">刷新</button>
+        </div>
+        <pre id="logsBox"></pre>
+      </section>
+    </main>
+
+    <script>
+      async function callApi(path, payload) {
+        const response = await fetch(path, {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          body: payload ? JSON.stringify(payload) : '{}'
+        });
+        if (!response.ok) {
+          const error = await response.text();
+          alert(error);
+          return;
+        }
+        await refreshStatus();
+        await refreshLogs();
+      }
+
+      async function refreshStatus() {
+        const response = await fetch('/api/status');
+        const status = await response.json();
+        document.getElementById('runningState').textContent = status.running ? '运行中' : '已停止';
+        document.getElementById('mqttState').textContent = status.mqtt_connected ? '已连接' : '未连接';
+        document.getElementById('serialPort').textContent = status.config.serial_port;
+
+        const stats = [
+          ['收到 MQTT', status.rx_count],
+          ['发到 UART', status.tx_count],
+          ['串口回包', status.ack_count],
+          ['最后 Topic', status.last_topic || '-'],
+          ['最后 Payload', status.last_payload || '-'],
+          ['最后 ACK', status.last_ack || '-'],
+          ['最后错误', status.last_error || '-'],
+          ['运行秒数', Math.floor(status.uptime_seconds)]
+        ];
+        document.getElementById('stats').innerHTML = stats
+          .map(([label, value]) => `<div><dt>${label}</dt><dd>${escapeHtml(String(value))}</dd></div>`)
+          .join('');
+      }
+
+      async function refreshLogs() {
+        const response = await fetch('/api/logs?limit=200');
+        const payload = await response.json();
+        const lines = payload.logs.map(item => `[${item.ts}] [${item.category}] ${item.message}`);
+        document.getElementById('logsBox').textContent = lines.join('\n');
+      }
+
+      async function loadPorts() {
+        const response = await fetch('/api/ports');
+        const payload = await response.json();
+        const text = payload.ports.length
+          ? payload.ports.map(item => `${item.device} (${item.description})`).join(' | ')
+          : '没有扫描到串口';
+        document.getElementById('portsHint').textContent = text;
+      }
+
+      function escapeHtml(text) {
+        return text
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;');
+      }
+
+      document.getElementById('configForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.target);
+        const payload = Object.fromEntries(form.entries());
+        payload.write_newline = form.has('write_newline');
+        payload.auto_start = form.has('auto_start');
+        payload.restart_after_save = document.getElementById('restartAfterSave').checked;
+        await callApi('/api/config', payload);
+      });
+
+      document.getElementById('testForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.target);
+        await callApi('/api/test_payload', Object.fromEntries(form.entries()));
+      });
+
+      document.getElementById('uartForm').addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const form = new FormData(event.target);
+        await callApi('/api/send_uart', Object.fromEntries(form.entries()));
+      });
+
+      refreshStatus();
+      refreshLogs();
+      setInterval(refreshStatus, 2000);
+      setInterval(refreshLogs, 3000);
+    </script>
+  </body>
+</html>
