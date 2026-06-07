@@ -33,7 +33,7 @@ static uint8_t sda_read(void) {
 }
 
 static void i2c_init_pins(void) {
-    RCC_AHB4ENR |= RCC_AHB4ENR_GPIOBEN;
+    RCC_AHB4ENR |= RCC_AHB4ENR_GPIOCEN;
 
     gpio_set_mode(OLED_GPIO_BASE, OLED_SCL_PIN, GPIO_MODE_OUTPUT);
     gpio_set_otype(OLED_GPIO_BASE, OLED_SCL_PIN, GPIO_OTYPE_OD);
