@@ -2,34 +2,25 @@
 
 当前版本：`v0.1.0`
 
-这个目录提供一套可以直接部署到 Linux 香橙派上的 `MQTT -> UART` 薄桥。
+这个目录提供一套部署在 Linux 香橙派上的 `MQTT -> UART` 薄桥。
 
-它做的事情很简单：
+它只做几件事：
 
-- 订阅你指定的一个或多个 MQTT topic
+- 订阅指定的一个或多个 MQTT topic
 - 收到 AstrBot MQTT 插件发来的 JSON payload 后，不改消息结构
 - 只在串口侧补一个换行符 `\n`
 - 原样发送给 STM32
-- 同时提供一个本地 Web 控制台，方便人工改配置、启停服务、看日志、做测试
-
-## GitHub 上传状态
-
-这个目录已经整理成适合直接上传 GitHub 的形式：
-
-- 运行期敏感配置使用 `config.json`，并已写入 `.gitignore`
-- 仓库里只保留 `config.example.json`
-- Python 虚拟环境、缓存文件、日志文件均已忽略
-- 版本号写在 [VERSION](VERSION) 和 [project_meta.py](project_meta.py)
+- 提供本地 Web 控制台，方便改配置、启停服务、看日志、做测试
 
 ## 适用消息格式
 
-桥程序不会把消息从 JSON 改成别的格式，推荐直接传：
+推荐直接传：
 
 ```json
 {"face":"happy","intensity":65}
 ```
 
-也兼容你后续可能扩展的格式：
+也兼容扩展格式：
 
 ```json
 {"cmd":"show","emo":"thinking","dur":3000}
@@ -50,11 +41,13 @@
 - [static/style.css](static/style.css)：页面样式
 - [requirements.txt](requirements.txt)：Python 依赖
 - [config.example.json](config.example.json)：配置示例
+- [Dockerfile](Dockerfile)：容器镜像构建文件
+- [.dockerignore](.dockerignore)：容器构建忽略规则
 - [orange_pi_mqtt_uart_bridge.service.example](orange_pi_mqtt_uart_bridge.service.example)：`systemd` 服务示例
 - [VERSION](VERSION)：当前版本号
 - [.gitignore](.gitignore)：Git 忽略规则
 
-## 安装
+## 本地 Python 运行
 
 在香橙派上准备 Python 3：
 
@@ -78,7 +71,7 @@ pip install -r requirements.txt
 cp config.example.json config.json
 ```
 
-## 启动
+启动：
 
 ```bash
 source .venv/bin/activate
@@ -91,11 +84,65 @@ python3 app.py
 http://<orange-pi-ip>:8080
 ```
 
-你也可以通过环境变量覆盖 Web 监听地址：
+也可以通过环境变量覆盖 Web 监听地址：
 
 ```bash
 BRIDGE_WEB_HOST=0.0.0.0 BRIDGE_WEB_PORT=8080 python3 app.py
 ```
+
+## Docker 镜像构建
+
+在本目录执行：
+
+```bash
+docker build -t orange-pi-mqtt-uart-bridge:0.1.0 .
+```
+
+镜像默认：
+
+- 监听 `0.0.0.0:8080`
+- 启动命令是 `python app.py`
+- 健康检查访问 `http://127.0.0.1:8080/api/status`
+
+## Docker 运行
+
+先准备运行配置：
+
+```bash
+cp config.example.json config.json
+```
+
+然后按实际串口设备启动，例如：
+
+```bash
+docker run -d \
+  --name orange-pi-mqtt-uart-bridge \
+  --restart unless-stopped \
+  -p 8080:8080 \
+  --device /dev/ttyS1:/dev/ttyS1 \
+  -v "$(pwd)/config.json:/app/config.json" \
+  orange-pi-mqtt-uart-bridge:0.1.0
+```
+
+如果你的设备不是 `/dev/ttyS1`，把上面的设备映射和 `config.json` 里的 `serial_port` 一起改掉，例如 `/dev/ttyS2` 或 `/dev/ttyAMA0`。
+
+容器化运行时要点：
+
+- `config.json` 挂载到 `/app/config.json`
+- 容器内串口路径必须和 `config.json.serial_port` 一致
+- Web 控制台默认端口是 `8080`
+- 当前镜像按 root 运行，避免串口权限在容器内再次卡住
+
+## 后续 docker compose 设计约束
+
+后面如果写 `compose.yaml`，至少要保留这几项：
+
+- 端口映射：`8080:8080`
+- 串口设备映射：如 `/dev/ttyS1:/dev/ttyS1`
+- 配置文件挂载：`./config.json:/app/config.json`
+- 重启策略：`unless-stopped`
+
+也就是说，后续 compose 只是在 `docker run` 这组参数上做结构化展开，不需要改 Python 业务代码。
 
 ## Web 控制台功能
 
