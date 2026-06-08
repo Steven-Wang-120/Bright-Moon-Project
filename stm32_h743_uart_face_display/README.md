@@ -1,69 +1,60 @@
 # STM32H743 UART Face Display
 
-当前版本：`v0.1.1`
+当前版本：`v0.2.0`
 
-这个目录是一套面向 `STM32H743ZIT6` 的最小自包含固件工程，目标是直接接收 Orange Pi 通过串口发来的单行 JSON，然后在 SSD1306 屏幕上显示表情。
+这个目录对应当前的 `H743` 主线固件：
 
-## GitHub 上传状态
+- 保留新的串口链路：`Orange Pi -> USART1(PA9/PA10) -> STM32H743`
+- 保留新的 OLED 引脚：`PC8/PC9`
+- 保留新的协议：`一行一个 JSON，以 \n 结束`
+- 显示逻辑改为“表情图片编译进 STM32H743 程序 Flash”
 
-这个目录已经整理成适合直接上传 GitHub 的形式：
-
-- 编译产物 `build/`、`*.elf`、`*.bin`、`*.map` 已写入 `.gitignore`
-- 版本号写在 [VERSION](VERSION) 和 [inc/version.h](inc/version.h)
-- README 中的代码路径已改成 GitHub 可用的相对链接
+这版不再使用手画表情兜底。
 
 ## 目标链路
 
 ```text
-AstrBot 插件 -> MQTT -> Orange Pi MQTT-UART Bridge -> USART1 -> STM32H743ZIT6 -> SSD1306
+AstrBot 插件 -> MQTT -> Orange Pi MQTT-UART Bridge -> USART1 -> STM32H743ZIP6 -> SSD1306
 ```
-
-本固件不再依赖旧的 `STM32F103 + MQTT 文本协议` 原型。
 
 ## 当前实现
 
-- MCU: `STM32H743ZIT6`
+- MCU: `STM32H743ZIP6`
 - 工具链: `arm-none-eabi-gcc`
 - 通信: `USART1`
 - 屏幕: `SSD1306 128x64`
 - 屏幕总线: 软件 `I2C`
 - 协议: `一行一个 JSON，以 \n 结束`
+- 表情资源: 本地图片转换成 `const uint8_t[]`，随固件一起编译进 MCU Flash
 
-## 选择的引脚
-
-当前固件使用下面这一组引脚：
+## 引脚
 
 - `USART1_TX = PA9`
 - `USART1_RX = PA10`
 - `OLED_SCL = PC8`
 - `OLED_SDA = PC9`
-- `GND` 共地
 
-如果你板子上这组脚不方便，可以直接修改 [inc/board.h](inc/board.h)。
+对应配置在 [inc/board.h](inc/board.h)。
 
 ## 支持的 JSON
 
-### AstrBot 当前 MQTT JSON
+基础格式：
 
 ```json
 {"face":"happy","intensity":65}
 ```
 
-### 扩展格式
+扩展格式：
 
 ```json
-{"cmd":"show","emo":"thinking","dur":3000}
+{"cmd":"show","emo":"thinking","intensity":70,"dur":3000}
 ```
 
-### 其他命令
-
-清屏：
+其他命令：
 
 ```json
 {"cmd":"clear"}
 ```
-
-心跳：
 
 ```json
 {"cmd":"ping"}
@@ -71,18 +62,18 @@ AstrBot 插件 -> MQTT -> Orange Pi MQTT-UART Bridge -> USART1 -> STM32H743ZIT6 
 
 ## 串口行为
 
-固件按行接收，`\r` 会被忽略，`\n` 代表一帧结束。
+固件按行接收，`\r` 忽略，`\n` 结束一帧。
 
-成功时会返回：
+成功时返回：
 
 ```text
 ACK show happy 65
-ACK show thinking 60 3000
+ACK show thinking 70 3000
 ACK clear
 ACK ping
 ```
 
-解析失败时会返回：
+解析失败时返回：
 
 ```text
 ERR missing face/emo
@@ -90,21 +81,40 @@ ERR unsupported face
 ERR line too long
 ```
 
-如果消息里带 `dur`，到时后会自动恢复默认中性脸，并返回：
+如果消息里带 `dur`，到时后会自动恢复 `neutral 50`：
 
 ```text
 ACK revert neutral 50
 ```
 
-上电启动时会先输出一行版本标识：
+上电启动时先回：
 
 ```text
-READY stm32_h743_uart_face_display v0.1.1 json-line stm32h743 uart1 pa9-pa10 oled pc8-pc9
+READY stm32_h743_uart_face_display v0.2.0 json-line stm32h743 uart1 pa9-pa10 oled pc8-pc9 flash-assets
 ```
 
-## 表情显示
+## 表情资源模型
 
-为了保持工程自包含，这一版没有依赖外部素材文件，而是直接在 SSD1306 上绘制 6 种基础表情：
+这版不从 SD 卡读图，也不在运行时访问文件系统。
+
+流程是：
+
+1. 把表情图片放进 [assets](assets/README.md) 目录
+2. 运行 [tools/generate_face_assets.py](tools/generate_face_assets.py)
+3. 脚本生成：
+   - [inc/generated_face_assets.h](inc/generated_face_assets.h)
+   - [src/generated_face_assets.c](src/generated_face_assets.c)
+4. `make` 时把这些位图和固件一起编译进 STM32H743 的程序 Flash
+
+运行时，固件会按 `face + intensity` 在编译进 Flash 的资源表里找最接近的一张图显示。
+
+如果当前没有对应资源，屏幕会清空，不再回退到手画表情。
+
+## 资源目录
+
+资源目录结构见 [assets/README.md](assets/README.md)。
+
+支持的表情目录名固定为：
 
 - `happy`
 - `sad`
@@ -112,8 +122,6 @@ READY stm32_h743_uart_face_display v0.1.1 json-line stm32h743 uart1 pa9-pa10 ole
 - `surprised`
 - `thinking`
 - `neutral`
-
-这样更适合当前“先打通串口收 JSON 控屏”的最小可用目标。
 
 ## 硬件连接
 
@@ -134,7 +142,24 @@ READY stm32_h743_uart_face_display v0.1.1 json-line stm32h743 uart1 pa9-pa10 ole
 
 - 这是 `3.3V TTL`
 - SSD1306 模块最好自带 I2C 上拉
-- 当前 OLED 使用软件 I2C，不依赖特定硬件 I2C 外设配置
+- 当前 OLED 使用软件 I2C，不依赖硬件 I2C 外设
+
+## 生成资源
+
+先安装 `Pillow`：
+
+```bash
+cd stm32_h743_uart_face_display
+python -m pip install Pillow
+```
+
+然后生成资源代码：
+
+```bash
+python tools/generate_face_assets.py
+```
+
+如果还没有准备任何图片资源，工程也能编译；只是屏幕不会显示表情图。
 
 ## 编译
 
@@ -158,31 +183,33 @@ make
 make flash
 ```
 
-当前 [openocd.cfg](openocd.cfg) 默认使用：
+默认使用：
 
 - `interface/stlink.cfg`
 - `target/stm32h7x.cfg`
 
-如果你用的是 CubeProgrammer，也可以直接烧 `build/stm32_h743_uart_face_display.bin` 到 `0x08000000`。
+如果你用的是 CubeProgrammer，也可以直接把 `build/stm32_h743_uart_face_display.bin` 烧到 `0x08000000`。
 
 ## 工程结构
 
 - [inc/board.h](inc/board.h)：板级引脚和波特率
 - [inc/mcu.h](inc/mcu.h)：最小寄存器定义
 - [inc/version.h](inc/version.h)：固件名和版本号
-- [src/main.c](src/main.c)：主循环、协议处理、ACK
+- [inc/face_assets.h](inc/face_assets.h)：资源查找接口
+- [inc/generated_face_assets.h](inc/generated_face_assets.h)：生成后的资源声明
+- [src/main.c](src/main.c)：主循环、JSON 处理、ACK
 - [src/json_protocol.c](src/json_protocol.c)：轻量 JSON 解析
 - [src/uart.c](src/uart.c)：`USART1`
-- [src/ssd1306.c](src/ssd1306.c)：软件 I2C 和 `SSD1306`
-- [src/face_display.c](src/face_display.c)：基础表情绘制
-- [startup_stm32h743xx.s](startup_stm32h743xx.s)：启动文件
-- [stm32h743zi.ld](stm32h743zi.ld)：链接脚本
-- [VERSION](VERSION)：当前版本号
-- [.gitignore](.gitignore)：Git 忽略规则
+- [src/ssd1306.c](src/ssd1306.c)：软件 I2C、SSD1306、整屏位图加载
+- [src/face_assets.c](src/face_assets.c)：按强度选择最接近资源
+- [src/generated_face_assets.c](src/generated_face_assets.c)：生成后的位图资源
+- [src/face_display.c](src/face_display.c)：显示入口
+- [tools/generate_face_assets.py](tools/generate_face_assets.py)：图片转位图脚本
+- [assets/README.md](assets/README.md)：资源目录约定
 
 ## 改引脚的方法
 
-如果后面你想换引脚，只需要改 [inc/board.h](inc/board.h)：
+如果后面要改引脚，只需要改 [inc/board.h](inc/board.h)：
 
 - 串口脚：`UART_TX_PIN`、`UART_RX_PIN`
 - 串口 AF：`UART_AF`
@@ -190,17 +217,10 @@ make flash
 
 ## 说明
 
-这版固件是“当前最小可用链路优先”的实现：
+这版固件的核心定位是：
 
-- 不依赖 HAL/CubeMX
-- 不依赖外部 JSON 库
-- 不依赖外部位图库
-- 先保证串口收一行 JSON -> 解析 -> 控屏 -> ACK 可用
-
-如果后面还要继续演进，下一步建议可以加：
-
-- DMA/中断串口接收
-- 更严格的 JSON 校验
-- CRC 或消息序号
-- 屏幕默认表情策略
-- 和上位机或其他外设统一协议
+- 新主线串口和 JSON 协议不变
+- 新主线 `PC8/PC9` OLED 引脚不变
+- 旧图片资源编译进 Flash 的显示模型迁移到 `H743`
+- 不使用 SD 卡
+- 不使用手画表情兜底

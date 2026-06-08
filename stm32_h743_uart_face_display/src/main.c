@@ -77,7 +77,7 @@ int main(void) {
     uart1_write_cstr(FW_NAME);
     uart1_write_cstr(" v");
     uart1_write_cstr(FW_VERSION);
-    uart1_write_line(" json-line stm32h743 uart1 pa9-pa10 oled pc8-pc9");
+    uart1_write_line(" json-line stm32h743 uart1 pa9-pa10 oled pc8-pc9 flash-assets");
 
     while (1) {
         uint8_t byte = 0U;

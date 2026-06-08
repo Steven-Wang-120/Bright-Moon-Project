@@ -10,6 +10,7 @@
 
 void ssd1306_init(void);
 void ssd1306_clear(void);
+void ssd1306_load_bitmap(const uint8_t *bitmap);
 void ssd1306_update(void);
 void ssd1306_draw_pixel(int16_t x, int16_t y, bool on);
 void ssd1306_draw_line(int16_t x0, int16_t y0, int16_t x1, int16_t y1, bool on);

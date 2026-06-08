@@ -6,6 +6,20 @@
 
 static uint8_t g_framebuffer[SSD1306_BUFFER_SIZE];
 
+static void oled_gpio_clock_enable(void) {
+    if (OLED_GPIO_BASE == GPIOA_BASE) {
+        RCC_AHB4ENR |= RCC_AHB4ENR_GPIOAEN;
+        return;
+    }
+    if (OLED_GPIO_BASE == GPIOB_BASE) {
+        RCC_AHB4ENR |= RCC_AHB4ENR_GPIOBEN;
+        return;
+    }
+    if (OLED_GPIO_BASE == GPIOC_BASE) {
+        RCC_AHB4ENR |= RCC_AHB4ENR_GPIOCEN;
+    }
+}
+
 static void i2c_delay_short(void) {
     for (volatile uint32_t i = 0; i < 24U; ++i) {
         __asm volatile ("nop");
@@ -33,7 +47,7 @@ static uint8_t sda_read(void) {
 }
 
 static void i2c_init_pins(void) {
-    RCC_AHB4ENR |= RCC_AHB4ENR_GPIOCEN;
+    oled_gpio_clock_enable();
 
     gpio_set_mode(OLED_GPIO_BASE, OLED_SCL_PIN, GPIO_MODE_OUTPUT);
     gpio_set_otype(OLED_GPIO_BASE, OLED_SCL_PIN, GPIO_OTYPE_OD);
@@ -152,6 +166,16 @@ void ssd1306_init(void) {
 void ssd1306_clear(void) {
     for (uint32_t i = 0U; i < SSD1306_BUFFER_SIZE; ++i) {
         g_framebuffer[i] = 0U;
+    }
+}
+
+void ssd1306_load_bitmap(const uint8_t *bitmap) {
+    if (bitmap == 0) {
+        return;
+    }
+
+    for (uint32_t i = 0U; i < SSD1306_BUFFER_SIZE; ++i) {
+        g_framebuffer[i] = bitmap[i];
     }
 }
 
